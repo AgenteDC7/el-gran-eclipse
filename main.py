@@ -8,7 +8,7 @@
 
 # ephem: https://rhodesmill.org/pyephem/index.html
 # ephem: https://pypi.org/project/ephem/
-# ephem: pip install ephem 
+# ephem: pip install ephem
 
 # global_land_mask: https://pypi.org/project/global-land-mask/
 # global_land_mask: pip install global-land-mask
@@ -17,6 +17,7 @@
 # ansi: https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 
 import math
+from sqlite3 import Date
 from ephem import *
 from global_land_mask import globe
 from time import sleep, time
@@ -178,6 +179,32 @@ def col_anim(en_obj1: bool, en_obj2: bool, bajo_horiz: bool = False) -> int:
 
 def lista_eclipses(tipo: int, fec_ini: Date, fec_fin: Date, obj1: Body, obj2: Body, obs: Observer, min_ocu: float)\
         -> [(Date, Date, float, float, float, float, str)]:
+    fec_actual=fec_ini
+    cont = 0
+    s1 = 0 
+    s2 = 0
+    s3 = 0
+    listaeclipses = []
+
+    while (fec_actual < fec_fin):
+        s3 = sep_alt_ocult(fec_actual, obj1, obj2)[0]
+        s2 = sep_alt_ocult(Date(fec_actual-1), obj1, obj2)[0]
+        s1 = sep_alt_ocult(Date(fec_actual-2), obj1, obj2)[0]
+        if ((s1 > s2) and (s2< s3)):
+            if (minimaseparacion(fec_actual-2, 48)<SEP_LIM):
+                fecha = minimaseparacion(fec_actual-2, 48, lugar= obs)
+                info = sep_alt_ocult(fecha)
+                if (info[2]>min_ocu):
+                    print("Eclipse encontrado en fecha: "+ fecha, "con ocultación: "+ info[2]+"% y altitud: "+ info[1]+" grados")
+                    tupla = (fecha, info[0], info[1], info[2])
+                    listaeclipses.append(tupla)
+                    cont += 1
+
+
+        fec_actual = Date(fec_actual+1)
+
+    return listaeclipses
+
     """ Devuelve la lista de los eclipses que se pueden dar entre dos fechas, filtrando por separación
     mínima desde el punto de vista geocéntrico y ocultación mínima desde el punto de vista del observador
     :param tipo: Tipo de eclipse (1 -> Eclipse de Sol)
@@ -237,6 +264,51 @@ def main():
     # Menu principal del programa
     menu_principal(tipo, lis, obj1, obj2, sitio)
 
+def minimaseparacion(fec_ini: Date, dt, obj1, obj2, lugar: None):
+    #dt está en horas
+    """
+    Recursive algorithm to refine the estimation of the date of minimum separation.
+    
+    Args:
+        fini (float): Initial date/time of the interval.
+        dt (float): Duration of the interval.
+        
+    Returns:
+        float: The refined date of minimum separation.
+    """
+#PASO A DIAS
+    paso_dias = (dt/24)/N_SEG
+    # 2) Generar las N_SEG+1 fechas del intervalo
+    fechas = [Date(fec_ini + i * paso_dias) for i in range(N_SEG + 1)]
+    
+    # 3) Calcular separación, altura y ocultación en cada fecha
+    resultados = [sep_alt_ocult(f, obj1, obj2, lugar) for f in fechas]
+
+    # 4) Inicializar la búsqueda del mejor punto
+    min_sep = float('inf') 
+    i_min = -1 #indice mejor punto
+    # 5) Buscar la menor separación entre los puntos con alt >= 0
+    for i, (sep, alt, _) in enumerate(resultados): #resultados contiene sep y alt y enumerate recorre los puntos probados
+        if alt >= 0:
+            if sep < min_sep:
+                min_sep = sep
+                i_min = i
+                
+    # 6) Si todas las alturas son negativas, devolver el punto medio
+    if i_min == -1:
+        return Date(fec_ini + (dt / 24) / 2)
+        
+    # 7) Si ya alcanzamos la precisión deseada, devolver la mejor fecha
+    if dt / 24 < PRECISION:
+        return fechas[i_min] 
+        
+    # 8) Calcular el nuevo intervalo alrededor del mínimo
+    i_anterior = max(0, i_min-1)
+    f_ini_nueva = fechas[i_anterior]
+    dt_nueva = 2 * dt /N_SEG #sigue en horas
+    
+    # 9) Repetir el proceso recursivamente sobre el nuevo intervalo
+    return minimaseparacion(f_ini_nueva, dt_nueva, obj1, obj2, lugar) #RECURSIVIDAD
 
 if __name__ == '__main__':
     main()
